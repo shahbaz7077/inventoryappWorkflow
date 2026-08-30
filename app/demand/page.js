@@ -1,31 +1,20 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabaseClient';
+import { useAuth } from '@/lib/AuthProvider';
+import { formatDate } from '@/lib/format';
 import { toast } from 'sonner';
 
 const DEPARTMENTS = ['Stitching', 'Finishing', 'Cutting', 'FID', 'Office'];
 
-const statusColor = {
-  pending: '#A63A2E',
-  partial: '#B8862E',
-  fulfilled: '#33566B',
-};
-
-function formatDate(dateStr) {
-  if (!dateStr) return '';
-  return new Date(dateStr).toLocaleString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
 export default function Demand() {
+  const { isAdmin, loading: authLoading } = useAuth();
   const [products, setProducts] = useState([]);
   const [demands, setDemands] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [productSearch, setProductSearch] = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
   const [form, setForm] = useState({
     productId: '',
     requestedBy: '',
@@ -34,13 +23,10 @@ export default function Demand() {
     quantity: '',
     note: '',
   });
-  const [productSearch, setProductSearch] = useState('');
-  const [showDropdown, setShowDropdown] = useState(false);
 
   const filteredProducts = products.filter((p) =>
     p.name.toLowerCase().includes(productSearch.toLowerCase())
   );
-
   const selectedProduct = products.find((p) => p.id === Number(form.productId));
 
   function selectProduct(p) {
@@ -50,9 +36,11 @@ export default function Demand() {
   }
 
   useEffect(() => {
-    fetchProducts();
-    fetchDemands();
-  }, []);
+    if (isAdmin) {
+      fetchProducts();
+      fetchDemands();
+    }
+  }, [isAdmin]);
 
   useEffect(() => {
     function handleClickOutside(e) {
@@ -63,13 +51,16 @@ export default function Demand() {
   }, []);
 
   async function fetchProducts() {
-    const res = await fetch('/api/products');
-    setProducts(await res.json());
+    const { data } = await supabase.from('products').select('*').order('name');
+    setProducts(data || []);
   }
 
   async function fetchDemands() {
-    const res = await fetch('/api/demands');
-    setDemands(await res.json());
+    const { data } = await supabase
+      .from('demands')
+      .select('*, products(name, unit)')
+      .order('requested_at', { ascending: false });
+    setDemands(data || []);
   }
 
   function updateForm(field, value) {
@@ -83,61 +74,92 @@ export default function Demand() {
       return;
     }
     setLoading(true);
-    const res = await fetch('/api/demands', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
+
+    const { error } = await supabase.from('demands').insert({
+      product_id: form.productId,
+      requested_by: form.requestedBy,
+      department: form.department || null,
+      collected_by: form.collectedBy || null,
+      quantity_requested: Number(form.quantity),
+      note: form.note || null,
     });
+
     setLoading(false);
 
-    if (res.ok) {
+    if (error) {
+      toast.error('Something went wrong');
+    } else {
       toast.success('Demand recorded');
       setForm({ productId: '', requestedBy: '', department: '', collectedBy: '', quantity: '', note: '' });
       setProductSearch('');
       fetchDemands();
-    } else {
-      toast.error('Something went wrong');
     }
   }
 
   async function handleFulfill(demand) {
     const remaining = demand.quantity_requested - demand.quantity_fulfilled;
-    const res = await fetch('/api/demands', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: demand.id, fulfillQuantity: remaining }),
-    });
-    const data = await res.json();
 
-    if (res.ok) {
-      toast.success(`Fulfilled — status: ${data.status}`);
+    const { data: product } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', demand.product_id)
+      .single();
+
+    if (!product || product.quantity < remaining) {
+      toast.error('Not enough stock to fulfill this amount');
+      return;
+    }
+
+    const newFulfilled = demand.quantity_fulfilled + remaining;
+    const newStatus = newFulfilled >= demand.quantity_requested ? 'fulfilled' : 'partial';
+
+    const { error: productError } = await supabase
+      .from('products')
+      .update({ quantity: product.quantity - remaining })
+      .eq('id', demand.product_id);
+
+    if (productError) {
+      toast.error('Could not update stock');
+      return;
+    }
+
+    const { error: demandError } = await supabase
+      .from('demands')
+      .update({
+        quantity_fulfilled: newFulfilled,
+        status: newStatus,
+        fulfilled_at: new Date().toISOString(),
+      })
+      .eq('id', demand.id);
+
+    if (demandError) {
+      toast.error('Could not update demand');
+    } else {
+      toast.success(`Fulfilled — status: ${newStatus}`);
       fetchDemands();
       fetchProducts();
-    } else {
-      toast.error(data.error || 'Could not fulfill');
     }
   }
 
+  const statusColor = {
+    pending: '#A63A2E',
+    partial: '#B8862E',
+    fulfilled: '#33566B',
+  };
+
+  if (authLoading) return <p>Loading…</p>;
+  if (!isAdmin) return <p className="text-[var(--rust)]">Access denied — admins only.</p>;
+
   return (
     <div>
-      <h1 className="font-display text-4xl font-extrabold tracking-tight text-slate-900 mb-8">
-        Demand
-      </h1>
+      <h1 className="font-display text-3xl font-bold mb-6">Demand</h1>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-10 items-start">
-        {/* Request form */}
-        <form
-          onSubmit={handleSubmit}
-          className="relative bg-white border border-slate-100 shadow-xl shadow-slate-100/70 rounded-2xl p-6 space-y-5 h-fit transition-all duration-300 hover:shadow-2xl hover:shadow-slate-200/50"
-        >
-          <span className="absolute top-4 right-4 text-[10px] font-semibold tracking-wider uppercase bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full border border-blue-200/60">
-            Request
-          </span>
+      <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-8">
+        <form onSubmit={handleSubmit} className="stock-card p-5 pl-6 space-y-4 h-fit relative">
+          <span className="stamp absolute top-3 right-3 text-[10px] px-2 py-0.5 text-[var(--brass)]">Request</span>
 
-          <div className="space-y-1.5 relative">
-            <label className="block text-xs font-bold uppercase tracking-widest text-slate-400">
-              Product
-            </label>
+          <div className="relative">
+            <label className="block text-xs uppercase tracking-widest text-[var(--ink)]/60 mb-1">Product</label>
             <input
               type="text"
               value={productSearch}
@@ -148,44 +170,38 @@ export default function Demand() {
               }}
               onFocus={() => setShowDropdown(true)}
               placeholder="Search product…"
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-slate-800 placeholder-slate-400 transition-all duration-200 focus:outline-none focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
+              className="w-full bg-[var(--paper)] border border-[var(--ink)]/20 px-3 py-2 text-sm focus:outline-none focus:border-[var(--steel)]"
             />
-
             {showDropdown && productSearch && (
-              <div className="absolute z-10 top-full left-0 right-0 bg-white border border-slate-200/80 rounded-xl shadow-xl max-h-48 overflow-y-auto mt-2 divide-y divide-slate-50">
+              <div className="absolute z-10 top-full left-0 right-0 bg-[var(--card)] border border-[var(--ink)]/20 max-h-48 overflow-y-auto mt-1">
                 {filteredProducts.length === 0 && (
-                  <p className="text-xs font-medium text-slate-400 px-4 py-3">
-                    No products found
-                  </p>
+                  <p className="text-xs text-[var(--ink)]/50 px-3 py-2">No products found</p>
                 )}
                 {filteredProducts.map((p) => (
                   <button
                     key={p.id}
                     type="button"
                     onClick={() => selectProduct(p)}
-                    className="w-full text-left px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-indigo-600 transition duration-150"
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-[var(--steel)] hover:text-[var(--card)] transition"
                   >
-                    {p.name} <span className="text-xs text-slate-400 font-normal">({p.quantity} {p.unit})</span>
+                    {p.name} <span className="text-xs opacity-60">({p.quantity} {p.unit})</span>
                   </button>
                 ))}
               </div>
             )}
-
             {selectedProduct && !showDropdown && (
-              <p className="text-xs font-semibold text-emerald-600 bg-emerald-50/60 px-3 py-1.5 rounded-lg border border-emerald-100/50 mt-2">
+              <p className="text-xs text-[var(--steel)] mt-1">
                 Selected: {selectedProduct.name} — {selectedProduct.quantity} {selectedProduct.unit} available
               </p>
             )}
           </div>
 
-          <div className="space-y-1.5">
-            <label className="block text-xs font-bold uppercase tracking-widest text-slate-400">
-              Department
-            </label>
+          <div>
+            <label className="block text-xs uppercase tracking-widest text-[var(--ink)]/60 mb-1">Department</label>
             <select
               value={form.department}
               onChange={(e) => updateForm('department', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-slate-800 transition-all duration-200 focus:outline-none focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 appearance-none"
+              className="w-full bg-[var(--paper)] border border-[var(--ink)]/20 px-3 py-2 text-sm focus:outline-none focus:border-[var(--steel)]"
             >
               <option value="">Select department</option>
               {DEPARTMENTS.map((d) => (
@@ -194,135 +210,85 @@ export default function Demand() {
             </select>
           </div>
 
-          <div className="space-y-1.5">
-            <label className="block text-xs font-bold uppercase tracking-widest text-slate-400">
-              Requested By
-            </label>
+          <div>
+            <label className="block text-xs uppercase tracking-widest text-[var(--ink)]/60 mb-1">Requested By</label>
             <input
               type="text"
               value={form.requestedBy}
               onChange={(e) => updateForm('requestedBy', e.target.value)}
-              placeholder="Name of person requesting"
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-slate-800 placeholder-slate-400 transition-all duration-200 focus:outline-none focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
+              className="w-full bg-[var(--paper)] border border-[var(--ink)]/20 px-3 py-2 text-sm focus:outline-none focus:border-[var(--steel)]"
             />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="block text-xs font-bold uppercase tracking-widest text-slate-400">
-              Collected By
-            </label>
+          <div>
+            <label className="block text-xs uppercase tracking-widest text-[var(--ink)]/60 mb-1">Collected By</label>
             <input
               type="text"
               value={form.collectedBy}
               onChange={(e) => updateForm('collectedBy', e.target.value)}
-              placeholder="Name of person taking the goods"
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-slate-800 placeholder-slate-400 transition-all duration-200 focus:outline-none focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
+              className="w-full bg-[var(--paper)] border border-[var(--ink)]/20 px-3 py-2 text-sm focus:outline-none focus:border-[var(--steel)]"
             />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="block text-xs font-bold uppercase tracking-widest text-slate-400">
-              Quantity
-            </label>
+          <div>
+            <label className="block text-xs uppercase tracking-widest text-[var(--ink)]/60 mb-1">Quantity</label>
             <input
               type="number"
               value={form.quantity}
               onChange={(e) => updateForm('quantity', e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-slate-800 transition-all duration-200 focus:outline-none focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
+              className="w-full bg-[var(--paper)] border border-[var(--ink)]/20 px-3 py-2 text-sm focus:outline-none focus:border-[var(--steel)]"
             />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="block text-xs font-bold uppercase tracking-widest text-slate-400">
-              Note (optional)
-            </label>
+          <div>
+            <label className="block text-xs uppercase tracking-widest text-[var(--ink)]/60 mb-1">Note (optional)</label>
             <textarea
               value={form.note}
               onChange={(e) => updateForm('note', e.target.value)}
               rows={2}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium text-slate-800 placeholder-slate-400 transition-all duration-200 focus:outline-none focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 resize-none"
+              className="w-full bg-[var(--paper)] border border-[var(--ink)]/20 px-3 py-2 text-sm focus:outline-none focus:border-[var(--steel)]"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-amber-600 text-white font-medium rounded-xl text-sm py-3.5 shadow-lg shadow-amber-600/10 hover:bg-amber-500 active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:pointer-events-none"
+            className="w-full bg-[var(--brass)] text-[var(--card)] font-display uppercase tracking-wider text-sm font-bold py-2.5 hover:opacity-90 transition disabled:opacity-50"
           >
             {loading ? 'Saving…' : 'Submit Demand'}
           </button>
         </form>
 
-        {/* Demand list */}
-        <div className="space-y-3.5">
+        <div className="space-y-3">
           {demands.length === 0 && (
-            <div className="flex flex-col items-center justify-center p-12 bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
-              <p className="text-sm font-medium text-slate-400">
-                No demands recorded yet.
-              </p>
-            </div>
+            <p className="text-sm text-[var(--ink)]/50">No demands recorded yet.</p>
           )}
           {demands.map((d) => (
-            <div
-              key={d.id}
-              className="relative bg-white border border-slate-100 shadow-sm shadow-slate-100 rounded-2xl p-5 transition-all duration-200 hover:shadow-md hover:border-slate-200/60"
-            >
+            <div key={d.id} className="stock-card p-4 pl-5 relative">
               <span
-                className="absolute top-4 right-4 text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-full border"
-                style={{
-                  color: statusColor[d.status],
-                  borderColor: `${statusColor[d.status]}30`,
-                  backgroundColor: `${statusColor[d.status]}08`,
-                }}
+                className="stamp absolute top-3 right-3 text-[10px] px-2 py-0.5"
+                style={{ color: statusColor[d.status] }}
               >
                 {d.status}
               </span>
-
-              <p className="font-semibold text-slate-800 text-base pr-20">{d.product_name}</p>
-
-              <p className="text-xs font-medium text-slate-500 mt-1 flex flex-wrap items-center gap-1.5">
-                <span className="text-slate-700 font-semibold">{d.requested_by}</span>
-                {d.department && (
-                  <>
-                    <span className="text-slate-300">•</span>
-                    <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-medium text-[11px]">{d.department}</span>
-                  </>
-                )}
-                {d.collected_by && (
-                  <>
-                    <span className="text-slate-300">•</span>
-                    <span className="text-slate-400">collected by <span className="text-slate-600 font-semibold">{d.collected_by}</span></span>
-                  </>
-                )}
+              <p className="font-display font-bold">{d.products?.name}</p>
+              <p className="text-xs text-[var(--ink)]/60 mt-0.5">
+                {d.requested_by}
+                {d.department ? ` · ${d.department}` : ''}
+                {d.collected_by ? ` · collected by ${d.collected_by}` : ''}
               </p>
-
-              <div className="mt-3 bg-slate-50 border border-slate-100 rounded-xl p-3 flex items-center justify-between">
-                <p className="text-sm font-medium text-slate-600">
-                  Fulfilled: <span className="font-bold text-slate-800">{d.quantity_fulfilled}</span> / {d.quantity_requested} <span className="text-xs text-slate-400 font-normal">{d.unit}</span>
-                </p>
-                <span className={`h-2 w-2 rounded-full ${d.quantity_fulfilled === d.quantity_requested ? 'bg-emerald-500' : d.quantity_fulfilled > 0 ? 'bg-amber-500' : 'bg-slate-200'}`} />
+              <p className="text-sm mt-2">
+                {d.quantity_fulfilled} / {d.quantity_requested} {d.products?.unit} fulfilled
+              </p>
+              <div className="text-[11px] text-[var(--ink)]/50 mt-1">
+                Requested: {formatDate(d.requested_at)}
+                {d.fulfilled_at && ` · Fulfilled: ${formatDate(d.fulfilled_at)}`}
               </div>
-
-              <div className="text-[11px] font-medium text-slate-400 mt-3 flex items-center gap-1.5">
-                <span>Requested: {formatDate(d.requested_at)}</span>
-                {d.fulfilled_at && (
-                  <>
-                    <span>•</span>
-                    <span className="text-emerald-600">Fulfilled: {formatDate(d.fulfilled_at)}</span>
-                  </>
-                )}
-              </div>
-
-              {d.note && (
-                <p className="text-xs font-medium text-slate-500 bg-slate-50/50 border border-slate-100 rounded-lg p-2.5 mt-3 italic">
-                  "{d.note}"
-                </p>
-              )}
-
+              {d.note && <p className="text-xs text-[var(--ink)]/50 mt-1">{d.note}</p>}
               {d.status !== 'fulfilled' && (
                 <button
                   onClick={() => handleFulfill(d)}
-                  className="mt-3 text-xs font-semibold uppercase tracking-wider text-indigo-600 border border-indigo-200 rounded-lg px-3 py-1.5 hover:bg-indigo-600 hover:text-white transition"
+                  className="mt-3 text-xs uppercase tracking-wider text-[var(--steel)] border border-[var(--steel)] px-3 py-1.5 hover:bg-[var(--steel)] hover:text-[var(--card)] transition"
                 >
                   Fulfill Remaining
                 </button>
