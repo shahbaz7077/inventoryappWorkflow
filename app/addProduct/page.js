@@ -157,16 +157,16 @@ export default function AddProduct() {
             <p className="text-sm text-[var(--ink)]/50">No products yet — add your first one.</p>
           )}
           {products.map((p) => (
-            <div key={p.id} className="stock-card p-4 pl-5 flex items-center justify-between">
-              <div>
-                <p className="font-display font-bold">{p.name}</p>
+            <div key={p.id} className="stock-card p-4 pl-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-display font-bold break-words">{p.name}</p>
                 <p className="text-xs text-[var(--ink)]/60 mt-0.5">
                   {p.quantity} {p.unit} {p.price ? `· Rs ${p.price}` : ''}
                 </p>
               </div>
 
               {confirmDeleteId === p.id ? (
-                <div className="flex gap-2">
+                <div className="flex gap-2 shrink-0">
                   <button
                     onClick={() => handleDelete(p.id)}
                     className="text-xs uppercase tracking-wider bg-[var(--rust)] text-[var(--card)] px-3 py-1.5 hover:opacity-90 transition"
@@ -183,7 +183,7 @@ export default function AddProduct() {
               ) : (
                 <button
                   onClick={() => setConfirmDeleteId(p.id)}
-                  className="text-xs uppercase tracking-wider text-[var(--rust)] border border-[var(--rust)] px-3 py-1.5 hover:bg-[var(--rust)] hover:text-[var(--card)] transition"
+                  className="text-xs uppercase tracking-wider text-[var(--rust)] border border-[var(--rust)] px-3 py-1.5 hover:bg-[var(--rust)] hover:text-[var(--card)] transition shrink-0 self-start sm:self-auto"
                 >
                   Delete
                 </button>

@@ -36,8 +36,8 @@ export default function Onboarding() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-[80vh]">
-      <form onSubmit={handleSubmit} className="stock-card p-6 space-y-4 w-80">
+    <div className="flex items-center justify-center min-h-[80vh] px-4">
+      <form onSubmit={handleSubmit} className="stock-card p-6 space-y-4 w-full max-w-sm">
         <h1 className="font-display text-xl font-bold text-center">Tell us about you</h1>
         <p className="text-xs text-red-500 break-all">DEBUG: {user?.id}</p>
         <div>

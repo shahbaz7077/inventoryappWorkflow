@@ -84,14 +84,14 @@ export default function AccessControl() {
           <h2 className="font-display text-lg font-bold mb-3">Pending Admin Requests</h2>
           <div className="space-y-3">
             {pendingRequests.map((p) => (
-              <div key={p.id} className="stock-card p-4 pl-5 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-bold">{p.name || 'Unnamed'} — {p.email}</p>
-                  <p className="text-xs text-[var(--ink)]/60 mt-0.5">
+              <div key={p.id} className="stock-card p-4 pl-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-bold break-words">{p.name || 'Unnamed'} — {p.email}</p>
+                  <p className="text-xs text-[var(--ink)]/60 mt-0.5 break-words">
                     Phone: {p.phone || 'N/A'} · Requested username: {p.requested_admin_username || 'N/A'}
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 shrink-0">
                   <button
                     onClick={() => approveRequest(p)}
                     className="text-xs uppercase tracking-wider border border-[var(--steel)] text-[var(--steel)] px-3 py-1.5 hover:bg-[var(--steel)] hover:text-white transition"
@@ -119,17 +119,17 @@ export default function AccessControl() {
               <p className="text-sm text-[var(--ink)]/50">No users yet.</p>
             )}
             {others.map((p) => (
-              <div key={p.id} className="stock-card p-4 pl-5 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-bold">{p.name || 'Unnamed'} — {p.email}</p>
-                  <p className="text-xs text-[var(--ink)]/60 mt-0.5">
+              <div key={p.id} className="stock-card p-4 pl-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-bold break-words">{p.name || 'Unnamed'} — {p.email}</p>
+                  <p className="text-xs text-[var(--ink)]/60 mt-0.5 break-words">
                     Phone: {p.phone || 'N/A'} · Role: <span className="font-bold">{p.role}</span>
                     {p.admin_request_status === 'denied' && ' · Previous request denied'}
                   </p>
                 </div>
                 <button
                   onClick={() => toggleRole(p)}
-                  className="text-xs uppercase tracking-wider border border-[var(--steel)] text-[var(--steel)] px-3 py-1.5 hover:bg-[var(--steel)] hover:text-white transition"
+                  className="text-xs uppercase tracking-wider border border-[var(--steel)] text-[var(--steel)] px-3 py-1.5 hover:bg-[var(--steel)] hover:text-white transition shrink-0 self-start sm:self-auto"
                 >
                   Make {p.role === 'admin' ? 'Visitor' : 'Admin'}
                 </button>

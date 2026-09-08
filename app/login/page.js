@@ -8,8 +8,8 @@ export default function Login() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-[var(--paper)]">
-      <div className="stock-card p-8 w-80 text-center space-y-5">
+    <div className="flex items-center justify-center min-h-screen bg-[var(--paper)] px-4">
+      <div className="stock-card p-8 w-full max-w-sm text-center space-y-5">
         <h1 className="font-display text-2xl font-bold">Stockroom</h1>
         <p className="text-xs text-[var(--ink)]/60">Sign in to access the inventory system</p>
         <button
